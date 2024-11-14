@@ -1,0 +1,4 @@
+User fahad logged in.
+User ID 1 started a new game session.
+User ID 1 guessed the number 48 in 11 attempts.
+User Fahad logged in.

@@ -1,0 +1,176 @@
+import sqlite3
+import random
+import datetime
+import hashlib
+
+# Database Handler Class
+class DatabaseHandler:
+    def __init__(self, db_name="game_scores.db"):
+        self.connection = sqlite3.connect(db_name)
+        self.cursor = self.connection.cursor()
+        self.create_tables()
+
+    def create_tables(self):
+        # Create users and scores tables if they do not exist
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password TEXT NOT NULL
+        )
+        """)
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS scores (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            score INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+        """)
+        self.connection.commit()
+
+    def register_user(self, username, password):
+        # Check if username already exists
+        self.cursor.execute("SELECT id FROM users WHERE username = ?", (username,))
+        if self.cursor.fetchone():
+            return False  # Username already exists
+
+        # Hash the password
+        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        try:
+            self.cursor.execute("INSERT INTO users (username, password) VALUES (?, ?)", (username, hashed_password))
+            self.connection.commit()
+            return True
+        except sqlite3.IntegrityError:
+            return False
+
+    def authenticate_user(self, username, password):
+        # Hash the password to compare
+        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        self.cursor.execute("SELECT id FROM users WHERE username = ? AND password = ?", (username, hashed_password))
+        result = self.cursor.fetchone()
+        return result[0] if result else None
+
+    def save_score(self, user_id, score):
+        date = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self.cursor.execute("INSERT INTO scores (user_id, score, date) VALUES (?, ?, ?)", (user_id, score, date))
+        self.connection.commit()
+
+    def get_top_scores(self, limit=5):
+        self.cursor.execute("""
+        SELECT u.username, s.score, s.date FROM scores s
+        JOIN users u ON s.user_id = u.id
+        ORDER BY s.score ASC LIMIT ?
+        """, (limit,))
+        return self.cursor.fetchall()
+
+    def close(self):
+        self.connection.close()
+
+# File Handler Class
+class FileHandler:
+    def __init__(self, file_name="game_log.txt"):
+        self.file_name = file_name
+
+    def write_log(self, log_message):
+        with open(self.file_name, "a") as file:
+            file.write(log_message + "\n")
+
+# Game Class
+class NumberGuessingGame:
+    def __init__(self):
+        self.db_handler = DatabaseHandler()
+        self.file_handler = FileHandler()
+        self.user_id = None
+
+    def register(self):
+        username = input("Enter a username: ")
+        password = input("Enter a password: ")
+        if self.db_handler.register_user(username, password):
+            print("Registration successful! You can now log in.")
+        else:
+            print("Username already exists. Please try a different username.")
+
+    def login(self):
+        username = input("Enter your username: ")
+        password = input("Enter your password: ")
+        user_id = self.db_handler.authenticate_user(username, password)
+        if user_id:
+            self.user_id = user_id
+            print(f"Welcome, {username}!")
+            self.file_handler.write_log(f"User {username} logged in.")
+        else:
+            print("Invalid username or password.")
+
+    def play_game(self):
+        if not self.user_id:
+            print("You need to log in first!")
+            return
+        
+        self.file_handler.write_log(f"User ID {self.user_id} started a new game session.")
+        random_number = random.randint(1, 100)
+        attempts = 0
+        print("Guess the number between 1 and 100!")
+
+        while True:
+            try:
+                guess = int(input("Enter your guess: "))
+                attempts += 1
+                if guess < random_number:
+                    print("Too low! Try again.")
+                elif guess > random_number:
+                    print("Too high! Try again.")
+                else:
+                    print(f"Congratulations! You've guessed the number in {attempts} attempts.")
+                    self.file_handler.write_log(f"User ID {self.user_id} guessed the number {random_number} in {attempts} attempts.")
+                    self.db_handler.save_score(self.user_id, attempts)
+                    break
+            except ValueError:
+                print("Invalid input! Please enter an integer.")
+
+    def show_top_scores(self):
+        print("Top Scores:")
+        scores = self.db_handler.get_top_scores()
+        for idx, (username, score, date) in enumerate(scores, start=1):
+            print(f"{idx}. {username} - {score} attempts on {date}")
+
+    def logout(self):
+        self.user_id = None
+        print("You have been logged out.")
+
+    def close_resources(self):
+        self.db_handler.close()
+
+# Main Application
+def main():
+    game = NumberGuessingGame()
+    while True:
+        print("\n--- Number Guessing Game ---")
+        print("1. Register")
+        print("2. Login")
+        print("3. Play Game")
+        print("4. Show Top Scores")
+        print("5. Logout")
+        print("6. Exit")
+        choice = input("Choose an option: ")
+
+        if choice == "1":
+            game.register()
+        elif choice == "2":
+            game.login()
+        elif choice == "3":
+            game.play_game()
+        elif choice == "4":
+            game.show_top_scores()
+        elif choice == "5":
+            game.logout()
+        elif choice == "6":
+            print("Thank you for playing!")
+            game.close_resources()
+            break
+        else:
+            print("Invalid choice! Please try again.")
+
+if __name__ == "__main__":
+    main()
